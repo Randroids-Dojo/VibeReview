@@ -1,0 +1,63 @@
+name: VibeReview
+options:
+  bundleIdPrefix: com.randroid
+  deploymentTarget:
+    macOS: "13.0"
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "2.4.0"
+targets:
+  VibeReview:
+    type: application
+    platform: macOS
+    sources:
+      - VibeReview
+      - path: ChromeExtension
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: KeyboardShortcuts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.randroid.VibeReview
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: VibeReview/VibeReview.entitlements
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 3
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSMainStoryboardFile: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: NO
+  VibeReviewTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - VibeReviewTests
+    dependencies:
+      - target: VibeReview
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.randroid.VibeReviewTests
+        GENERATE_INFOPLIST_FILE: YES
+  VibeReviewUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - VibeReviewUITests
+    dependencies:
+      - target: VibeReview
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.randroid.VibeReviewUITests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  VibeReview:
+    build:
+      targets:
+        VibeReview: all
+    test:
+      targets:
+        - VibeReviewTests
+        - VibeReviewUITests
