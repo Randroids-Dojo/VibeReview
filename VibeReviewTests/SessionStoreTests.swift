@@ -46,6 +46,14 @@ final class SessionStoreTests: XCTestCase {
 
         let report = try String(contentsOf: artifactRoot.appendingPathComponent("vibereview-session.html"))
         XCTAssertFalse(report.contains("delete me"))
+
+        let docsRoot = URL(fileURLWithPath: store.activeSession!.docsProfile.docsDirectoryPath, isDirectory: true)
+        let playtest = try String(contentsOf: docsRoot.appendingPathComponent("PLAYTEST.html"))
+        let followups = try String(contentsOf: docsRoot.appendingPathComponent("FOLLOWUPS.html"))
+        XCTAssertFalse(playtest.contains(capture.id.uuidString))
+        XCTAssertFalse(playtest.contains(capture.screenshotRelativePath))
+        XCTAssertFalse(followups.contains(capture.id.uuidString))
+        XCTAssertFalse(followups.contains(capture.screenshotRelativePath))
     }
 
     func testLoadsPersistedSessionAsPausedOnNewStoreInstance() throws {

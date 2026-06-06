@@ -30,6 +30,28 @@ struct SpiralHTMLWriter {
         }
     }
 
+    func removeCaptureFromLedgers(_ capture: ReviewCapture, in session: ReviewSession) throws {
+        guard session.docsProfile.canMutateHTMLLedgers else { return }
+
+        let captureID = capture.id.uuidString
+        let screenshotLedgerPath = "reviews/\(session.id)/\(capture.screenshotRelativePath)"
+
+        try removeElements(
+            named: "article",
+            from: docsURL(session, "PLAYTEST.html")
+        ) { element in
+            element.contains(#"data-capture="\#(captureID)""#)
+        }
+
+        try removeElements(
+            named: "section",
+            from: docsURL(session, "FOLLOWUPS.html")
+        ) { element in
+            element.contains(#"data-capture="\#(captureID)""#)
+                || element.contains(screenshotLedgerPath)
+        }
+    }
+
     func ensureMinimumHTMLDocs(for profile: ProjectDocsProfile) throws {
         guard profile.canMutateHTMLLedgers else { return }
         let docsURL = URL(fileURLWithPath: profile.docsDirectoryPath, isDirectory: true)
@@ -158,7 +180,7 @@ struct SpiralHTMLWriter {
         let title = capture.note.split(separator: "\n").first.map(String.init) ?? "Review feedback"
         let entry = """
 
-        <section data-f="\(id)" data-priority="\(priority)">
+        <section data-f="\(id)" data-vibereview-session="\(HTML.attribute(session.id))" data-capture="\(capture.id.uuidString)" data-priority="\(priority)">
           <h3>\(id): \(HTML.escape(title))</h3>
           <dl>
             <dt>Context</dt><dd>Captured during VibeReview session <a href="reviews/\(HTML.attribute(session.id))/vibereview-session.html">\(HTML.escape(session.title))</a>. Screenshot: <a href="reviews/\(HTML.attribute(session.id))/\(HTML.attribute(capture.screenshotRelativePath))">\(HTML.escape(capture.screenshotRelativePath))</a>. URL: \(HTML.escape(capture.browserURL ?? "not captured")).</dd>
@@ -171,6 +193,33 @@ struct SpiralHTMLWriter {
         """
         html = append(entry, beforeClosing: "main", in: html)
         try html.write(to: followupsURL, atomically: true, encoding: .utf8)
+    }
+
+    private func removeElements(
+        named tag: String,
+        from url: URL,
+        shouldRemove: (String) -> Bool
+    ) throws {
+        guard fileManager.fileExists(atPath: url.path) else { return }
+
+        var html = try String(contentsOf: url, encoding: .utf8)
+        let pattern = #"<\#(tag)\b[^>]*>.*?</\#(tag)>"#
+        let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators])
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        let matches = regex.matches(in: html, range: range)
+
+        var removedAny = false
+        for match in matches.reversed() {
+            guard let stringRange = Range(match.range, in: html) else { continue }
+            let element = String(html[stringRange])
+            guard shouldRemove(element) else { continue }
+            html.removeSubrange(stringRange)
+            removedAny = true
+        }
+
+        if removedAny {
+            try html.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func docsURL(_ session: ReviewSession, _ file: String) -> URL {

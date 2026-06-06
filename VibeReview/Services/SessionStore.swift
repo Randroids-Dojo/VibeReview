@@ -173,6 +173,7 @@ final class SessionStore: ObservableObject {
         }
 
         updatedSession.captures.removeAll { $0.id == capture.id }
+        try writer.removeCaptureFromLedgers(capture, in: updatedSession)
         try removeArtifactIfPresent(capture.screenshotRelativePath, in: updatedSession)
         if let browserSnapshotRelativePath = capture.browserSnapshotRelativePath {
             try removeArtifactIfPresent(browserSnapshotRelativePath, in: updatedSession)

@@ -8,6 +8,7 @@ final class BrowserSnapshotServer: ObservableObject {
     @Published private(set) var lastError: String?
 
     private let port: NWEndpoint.Port = 37717
+    private let maximumRequestLength = 10_000_000
     private var listener: NWListener?
 
     var endpointDescription: String {
@@ -52,23 +53,90 @@ final class BrowserSnapshotServer: ObservableObject {
 
     private nonisolated func handle(_ connection: NWConnection) {
         connection.start(queue: .global(qos: .utility))
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1_000_000) { [weak self] data, _, _, _ in
-            guard let data else {
+        receiveRequest(on: connection, buffer: Data())
+    }
+
+    private nonisolated func receiveRequest(on connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            guard error == nil else {
                 connection.cancel()
                 return
             }
-            self?.process(data, connection: connection)
+
+            var updatedBuffer = buffer
+            if let data {
+                updatedBuffer.append(data)
+            }
+
+            do {
+                if let body = try Self.completeRequestBody(from: updatedBuffer) {
+                    self?.process(body: body, connection: connection)
+                    return
+                }
+            } catch {
+                self?.sendBadRequest(error, connection: connection)
+                return
+            }
+
+            if updatedBuffer.count > (self?.maximumRequestLength ?? 10_000_000) {
+                let error = NSError(
+                    domain: "BrowserSnapshotServer",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Snapshot request exceeded the maximum supported size."]
+                )
+                self?.sendBadRequest(error, connection: connection)
+                return
+            }
+
+            guard !isComplete else {
+                let error = NSError(
+                    domain: "BrowserSnapshotServer",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Snapshot request ended before the full HTTP body was received."]
+                )
+                self?.sendBadRequest(error, connection: connection)
+                return
+            }
+
+            self?.receiveRequest(on: connection, buffer: updatedBuffer)
         }
     }
 
-    private nonisolated func process(_ data: Data, connection: NWConnection) {
+    nonisolated static func completeRequestBody(from data: Data) throws -> Data? {
+        let separator = Data("\r\n\r\n".utf8)
+        guard let headerRange = data.range(of: separator) else { return nil }
+
+        guard let header = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else {
+            throw NSError(domain: "BrowserSnapshotServer", code: 4)
+        }
+
+        let contentLength = try contentLength(from: header)
+        let bodyStart = headerRange.upperBound
+        let bodyEnd = bodyStart + contentLength
+        guard data.count >= bodyEnd else { return nil }
+        return data[bodyStart..<bodyEnd]
+    }
+
+    private nonisolated static func contentLength(from header: String) throws -> Int {
+        for line in header.components(separatedBy: "\r\n").dropFirst() {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            guard parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "content-length" else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if let length = Int(value), length >= 0 {
+                return length
+            }
+            throw NSError(domain: "BrowserSnapshotServer", code: 5)
+        }
+
+        throw NSError(domain: "BrowserSnapshotServer", code: 6)
+    }
+
+    private nonisolated func process(body: Data, connection: NWConnection) {
         let response: String
         do {
-            guard let request = String(data: data, encoding: .utf8),
-                  let bodyStart = request.range(of: "\r\n\r\n")?.upperBound else {
-                throw NSError(domain: "BrowserSnapshotServer", code: 1)
-            }
-            let body = Data(request[bodyStart...].utf8)
             let snapshot = try JSONCoding.decoder().decode(BrowserSnapshot.self, from: body)
             Task { @MainActor in
                 self.lastSnapshot = snapshot
@@ -83,16 +151,24 @@ final class BrowserSnapshotServer: ObservableObject {
             \r
             """
         } catch {
-            Task { @MainActor in
-                self.lastError = error.localizedDescription
-            }
-            response = """
-            HTTP/1.1 400 Bad Request\r
-            Access-Control-Allow-Origin: *\r
-            Content-Length: 0\r
-            \r
-            """
+            sendBadRequest(error, connection: connection)
+            return
         }
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
+    private nonisolated func sendBadRequest(_ error: Error, connection: NWConnection) {
+        Task { @MainActor in
+            self.lastError = error.localizedDescription
+        }
+        let response = """
+        HTTP/1.1 400 Bad Request\r
+        Access-Control-Allow-Origin: *\r
+        Content-Length: 0\r
+        \r
+        """
         connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })

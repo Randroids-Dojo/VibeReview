@@ -2,6 +2,19 @@ import XCTest
 @testable import VibeReview
 
 final class BrowserSnapshotTests: XCTestCase {
+    func testHTTPBodyWaitsForDeclaredContentLength() throws {
+        let body = #"{"url":"https://example.test"}"#
+        let requestPrefix = "POST /snapshot HTTP/1.1\r\n"
+            + "Host: 127.0.0.1:37717\r\n"
+            + "Content-Length: \(body.utf8.count)\r\n"
+            + "\r\n"
+
+        XCTAssertNil(try BrowserSnapshotServer.completeRequestBody(from: Data((requestPrefix + "{").utf8)))
+
+        let completeBody = try BrowserSnapshotServer.completeRequestBody(from: Data((requestPrefix + body).utf8))
+        XCTAssertEqual(completeBody, Data(body.utf8))
+    }
+
     func testDecodesExtensionSnapshot() throws {
         let json = """
         {

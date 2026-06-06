@@ -77,6 +77,7 @@ final class SpiralHTMLWriterTests: XCTestCase {
         let report = try String(contentsOf: artifactRoot.appendingPathComponent("vibereview-session.html"))
         XCTAssertTrue(playtest.contains("data-vibereview-session=\"test-session\""))
         XCTAssertTrue(followups.contains("data-f=\"F-001\""))
+        XCTAssertTrue(followups.contains("data-capture=\"\(capture.id.uuidString)\""))
         XCTAssertTrue(followups.contains("data-priority=\"blocks-release\""))
         XCTAssertTrue(report.contains("<h3>Tags:</h3>"))
         XCTAssertTrue(report.contains("<li>controls</li>"))
