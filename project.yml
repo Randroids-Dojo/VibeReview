@@ -23,8 +23,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.randroid.VibeReview
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: VibeReview/VibeReview.entitlements
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 4
+        MARKETING_VERSION: 0.1.1
+        CURRENT_PROJECT_VERSION: 5
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         INFOPLIST_KEY_NSMainStoryboardFile: ""

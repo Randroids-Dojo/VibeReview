@@ -56,6 +56,34 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertFalse(followups.contains(capture.screenshotRelativePath))
     }
 
+    func testDeleteProjectDataRemovesSessionsArtifactsAndLedgerReferences() throws {
+        let registryURL = try temporaryDirectory().appendingPathComponent("sessions.json")
+        let store = makeStore(registryURL: registryURL)
+        let session = try makeSession(in: store)
+        let capture = try addCapture(to: store, session: session, note: "cleanup me", tags: ["cleanup"])
+        let artifactRoot = URL(fileURLWithPath: session.artifactRootPath, isDirectory: true)
+        let docsRoot = URL(fileURLWithPath: session.docsProfile.docsDirectoryPath, isDirectory: true)
+        let reviewsRoot = docsRoot.appendingPathComponent("reviews", isDirectory: true)
+
+        let deletedCount = try store.deleteProjectData(for: session)
+
+        XCTAssertEqual(deletedCount, 1)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertNil(store.activeSession)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: artifactRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reviewsRoot.path))
+
+        let reloadedStore = makeStore(registryURL: registryURL)
+        XCTAssertTrue(reloadedStore.sessions.isEmpty)
+
+        let playtest = try String(contentsOf: docsRoot.appendingPathComponent("PLAYTEST.html"))
+        let followups = try String(contentsOf: docsRoot.appendingPathComponent("FOLLOWUPS.html"))
+        XCTAssertFalse(playtest.contains(capture.id.uuidString))
+        XCTAssertFalse(playtest.contains(capture.screenshotRelativePath))
+        XCTAssertFalse(followups.contains(capture.id.uuidString))
+        XCTAssertFalse(followups.contains(capture.screenshotRelativePath))
+    }
+
     func testLoadsPersistedSessionAsPausedOnNewStoreInstance() throws {
         let registryURL = try temporaryDirectory().appendingPathComponent("sessions.json")
         let firstStore = makeStore(registryURL: registryURL)

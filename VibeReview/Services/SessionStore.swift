@@ -186,6 +186,34 @@ final class SessionStore: ObservableObject {
         try persist()
     }
 
+    @discardableResult
+    func deleteProjectData(for session: ReviewSession) throws -> Int {
+        let projectSessions = sessions.filter { isSameProject($0, session) }
+        guard !projectSessions.isEmpty else {
+            throw NSError(domain: "VibeReview", code: 1, userInfo: [NSLocalizedDescriptionKey: "Review project was not found."])
+        }
+
+        for projectSession in projectSessions {
+            for capture in projectSession.captures {
+                try writer.removeCaptureFromLedgers(capture, in: projectSession)
+            }
+            try removeDirectoryIfPresent(URL(fileURLWithPath: projectSession.artifactRootPath, isDirectory: true))
+        }
+
+        for docsDirectoryPath in Set(projectSessions.map(\.docsProfile.docsDirectoryPath)) {
+            try removeReviewsDirectoryIfEmpty(in: docsDirectoryPath)
+        }
+
+        sessions.removeAll { candidate in
+            projectSessions.contains { $0.id == candidate.id }
+        }
+        if let activeSession, isSameProject(activeSession, session) {
+            self.activeSession = nil
+        }
+        try persist()
+        return projectSessions.count
+    }
+
     func updateCapture(
         _ capture: ReviewCapture,
         in session: ReviewSession,
@@ -275,6 +303,31 @@ final class SessionStore: ObservableObject {
         if fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
+    }
+
+    private func removeDirectoryIfPresent(_ url: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+        try fileManager.removeItem(at: url)
+    }
+
+    private func removeReviewsDirectoryIfEmpty(in docsDirectoryPath: String) throws {
+        let reviewsURL = URL(fileURLWithPath: docsDirectoryPath, isDirectory: true)
+            .appendingPathComponent("reviews", isDirectory: true)
+        guard fileManager.fileExists(atPath: reviewsURL.path) else { return }
+        let remainingChildren = try fileManager.contentsOfDirectory(
+            at: reviewsURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        if remainingChildren.isEmpty {
+            try fileManager.removeItem(at: reviewsURL)
+        }
+    }
+
+    private func isSameProject(_ lhs: ReviewSession, _ rhs: ReviewSession) -> Bool {
+        URL(fileURLWithPath: lhs.projectRootPath).standardizedFileURL.path
+            == URL(fileURLWithPath: rhs.projectRootPath).standardizedFileURL.path
     }
 
     private func makeSessionID() -> String {

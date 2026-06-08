@@ -52,7 +52,13 @@ struct ContentView: View {
                 if isBuildInstallSelected {
                     BuildInstallPane(buildInstallService: buildInstallService)
                 } else if let selectedSession {
-                    SessionDetailView(session: selectedSession, sessionStore: sessionStore)
+                    SessionDetailView(
+                        session: selectedSession,
+                        sessionStore: sessionStore,
+                        onProjectDeleted: {
+                            selectedSessionID = sessionStore.activeSession?.id ?? sessionStore.sessions.first?.id
+                        }
+                    )
                 } else {
                     EmptySessionView(startAction: chooseProjectAndStart)
                 }
@@ -240,8 +246,10 @@ private struct EmptySessionView: View {
 private struct SessionDetailView: View {
     let session: ReviewSession
     @ObservedObject var sessionStore: SessionStore
+    let onProjectDeleted: () -> Void
     @State private var capturePendingDeletion: ReviewCapture?
     @State private var captureBeingEdited: ReviewCapture?
+    @State private var projectPendingDeletion = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -262,6 +270,12 @@ private struct SessionDetailView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.artifactRootPath)])
                     } label: {
                         Label("Artifacts", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        projectPendingDeletion = true
+                    } label: {
+                        Label("Cleanup Project", systemImage: "trash")
                     }
                     .buttonStyle(.bordered)
                     if session.status != .active {
@@ -317,6 +331,16 @@ private struct SessionDetailView: View {
         } message: {
             Text("This removes the capture from the session report and deletes its screenshot and browser JSON artifact files.")
         }
+        .alert("Cleanup Project?", isPresented: $projectPendingDeletion) {
+            Button("Delete VibeReview Data", role: .destructive) {
+                deleteProjectData()
+            }
+            Button("Cancel", role: .cancel) {
+                projectPendingDeletion = false
+            }
+        } message: {
+            Text("This removes all VibeReview sessions, captures, and review folders for \(session.title). The game project folder and other docs are not deleted.")
+        }
         .sheet(item: $captureBeingEdited) { capture in
             CaptureEditSheet(
                 capture: capture,
@@ -335,6 +359,16 @@ private struct SessionDetailView: View {
         do {
             try sessionStore.deleteCapture(capture, from: session)
             capturePendingDeletion = nil
+        } catch {
+            sessionStore.lastError = error.localizedDescription
+        }
+    }
+
+    private func deleteProjectData() {
+        do {
+            try sessionStore.deleteProjectData(for: session)
+            projectPendingDeletion = false
+            onProjectDeleted()
         } catch {
             sessionStore.lastError = error.localizedDescription
         }
