@@ -177,6 +177,13 @@ final class BuildInstallService: ObservableObject {
                 return
             }
 
+            let builtCLIURL = buildRoot.appendingPathComponent("vibereview")
+            guard FileManager.default.isExecutableFile(atPath: builtCLIURL.path) else {
+                state = .failed("Build completed, but the CLI executable was not found at `\(builtCLIURL.path)`.")
+                return
+            }
+            try Self.bundleCLI(from: builtCLIURL, into: builtAppURL)
+
             state = .installing
             try Self.launchInstallerScript(from: builtAppURL, to: Self.installAppURL)
             NSApp.terminate(nil)
@@ -248,6 +255,49 @@ final class BuildInstallService: ObservableObject {
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
+    private nonisolated static func bundleCLI(from cliURL: URL, into appURL: URL) throws {
+        let infoPlistURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist")
+        let infoPlistData = try Data(contentsOf: infoPlistURL)
+        let infoPlist = try PropertyListSerialization.propertyList(from: infoPlistData, format: nil) as? [String: Any]
+        guard let appExecutable = infoPlist?["CFBundleExecutable"] as? String, !appExecutable.isEmpty else {
+            throw BuildInstallError(
+                message: "Build completed, but the app executable name could not be read from `\(infoPlistURL.path)`.",
+                outputSnippet: nil
+            )
+        }
+        guard appExecutable.lowercased() != "vibereview" else {
+            throw BuildInstallError(
+                message: "The app executable `\(appExecutable)` conflicts with the bundled CLI name `vibereview` on case-insensitive filesystems.",
+                outputSnippet: nil
+            )
+        }
+
+        let appExecutableURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("MacOS", isDirectory: true)
+            .appendingPathComponent(appExecutable)
+        let destinationURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("MacOS", isDirectory: true)
+            .appendingPathComponent("vibereview")
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: cliURL, to: destinationURL)
+        guard
+            FileManager.default.isExecutableFile(atPath: appExecutableURL.path),
+            FileManager.default.isExecutableFile(atPath: destinationURL.path),
+            !FileManager.default.contentsEqual(atPath: appExecutableURL.path, andPath: destinationURL.path)
+        else {
+            throw BuildInstallError(
+                message: "Bundling the CLI overwrote or removed the app executable.",
+                outputSnippet: nil
+            )
+        }
+    }
+
     private nonisolated static func findXcodegen() -> URL? {
         let candidates = [
             "/opt/homebrew/bin/xcodegen",
@@ -311,8 +361,14 @@ final class BuildInstallService: ObservableObject {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("vibereview-reinstall-\(UUID().uuidString).zsh")
 
+        let cliShimPath = "/usr/local/bin/vibereview"
+        let cliTargetPath = installURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("MacOS", isDirectory: true)
+            .appendingPathComponent("vibereview")
+            .path
         let installCommand = """
-        /bin/rm -rf \(shellQuoted(installURL.path)) && /usr/bin/ditto \(shellQuoted(sourceAppURL.path)) \(shellQuoted(installURL.path)) && /usr/bin/open \(shellQuoted(installURL.path))
+        /bin/mkdir -p /usr/local/bin && /bin/rm -rf \(shellQuoted(installURL.path)) && /usr/bin/ditto \(shellQuoted(sourceAppURL.path)) \(shellQuoted(installURL.path)) && /bin/ln -sf \(shellQuoted(cliTargetPath)) \(shellQuoted(cliShimPath)) && /usr/bin/open \(shellQuoted(installURL.path))
         """
 
         let privilegedInstallCommand = appleScriptEscaped(installCommand)
@@ -327,7 +383,7 @@ final class BuildInstallService: ObservableObject {
             sleep 1
         done
 
-        if [ -w \(shellQuoted(installParent)) ]; then
+        if [ -w \(shellQuoted(installParent)) ] && { [ -w /usr/local/bin ] || { [ ! -e /usr/local/bin ] && [ -w /usr/local ]; }; }; then
             \(installCommand)
         else
             /usr/bin/osascript -e "do shell script \\"\(privilegedInstallCommand)\\" with administrator privileges"

@@ -28,6 +28,38 @@ Run unit tests:
 
 The project is generated with XcodeGen from `project.yml`. The generated `VibeReview.xcodeproj` is checked in for normal Xcode use.
 
+## Agent CLI
+
+Builds include a bundled CLI at:
+
+```text
+build/VibeReview.app/Contents/MacOS/vibereview
+```
+
+Run it from the repo with:
+
+```bash
+./scripts/cli.sh status
+```
+
+Install the app and global CLI shim with:
+
+```bash
+./scripts/install.sh
+```
+
+That installs `/Applications/VibeReview.app` and creates `/usr/local/bin/vibereview` pointing at the bundled executable, so future app installs upgrade the CLI too.
+
+Agent workflow:
+
+```bash
+vibereview start --project /path/to/game --title "Game Review"
+vibereview capture --project /path/to/game --note "Jump timing feels late" --severity issue --rating 3 --tags controls,feel
+vibereview end --project /path/to/game
+```
+
+The CLI uses VibeReview's native screenshot capture and the Chrome extension snapshot receiver. Keep the extension installed and loaded in the browser tab under review.
+
 ## Chrome extension setup
 
 1. Run VibeReview.

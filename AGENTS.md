@@ -24,6 +24,18 @@ The built app is written to:
 build/VibeReview.app
 ```
 
+The built agent CLI is bundled in:
+
+```text
+build/VibeReview.app/Contents/MacOS/vibereview
+```
+
+Run the CLI from the repo:
+
+```bash
+./scripts/cli.sh status
+```
+
 Run the built app from the repo:
 
 ```bash
@@ -40,22 +52,32 @@ Do not run `build.sh` and `test.sh` concurrently. Both invoke XcodeGen and can r
 
 ## Install To Applications
 
-Build first, then install the app into the Mac Applications folder:
+Install the app and global CLI shim:
 
 ```bash
-./scripts/build.sh
-rm -rf /Applications/VibeReview.app
-ditto build/VibeReview.app /Applications/VibeReview.app
-open /Applications/VibeReview.app
+./scripts/install.sh
 ```
 
-If `/Applications` requires elevated permissions on the machine:
+This writes the app to:
+
+```text
+/Applications/VibeReview.app
+```
+
+And creates or refreshes:
+
+```text
+/usr/local/bin/vibereview -> /Applications/VibeReview.app/Contents/MacOS/vibereview
+```
+
+If `/Applications` or `/usr/local/bin` requires elevated permissions, `install.sh` prompts for administrator privileges.
+
+Use the CLI for agent-driven reviews:
 
 ```bash
-./scripts/build.sh
-sudo rm -rf /Applications/VibeReview.app
-sudo ditto build/VibeReview.app /Applications/VibeReview.app
-open /Applications/VibeReview.app
+vibereview start --project /path/to/game --title "Game Review"
+vibereview capture --project /path/to/game --note "Jump timing feels late" --severity issue --rating 3 --tags controls,feel
+vibereview end --project /path/to/game
 ```
 
 ## Chrome Extension

@@ -3,6 +3,29 @@ import XCTest
 
 @MainActor
 final class SessionStoreTests: XCTestCase {
+    func testCreatePendingCaptureUsesInjectedScreenshotCapturer() throws {
+        let store = try makeStore(screenshotCapture: FakeScreenshotCapturer(data: Data([9, 8, 7])))
+        let session = try makeSession(in: store)
+
+        let pending = try store.createPendingCapture(browserSnapshot: nil)
+
+        let screenshotData = try Data(contentsOf: pending.screenshotURL)
+        XCTAssertEqual(screenshotData, Data([9, 8, 7]))
+        XCTAssertTrue(pending.screenshotRelativePath.hasPrefix("captures/"))
+        XCTAssertEqual(store.activeSession?.id, session.id)
+    }
+
+    func testLatestSessionForProjectDoesNotCreateSessionWhenMissing() throws {
+        let store = try makeStore()
+        let root = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+
+        let session = try store.latestSession(projectSelectionURL: root)
+
+        XCTAssertNil(session)
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
     func testUpdateCaptureRewritesSessionArtifacts() throws {
         let store = try makeStore()
         let session = try makeSession(in: store)
@@ -139,14 +162,17 @@ final class SessionStoreTests: XCTestCase {
         return try store.startSession(projectSelectionURL: root, title: "Test Game")
     }
 
-    private func makeStore(registryURL: URL? = nil) throws -> SessionStore {
+    private func makeStore(
+        registryURL: URL? = nil,
+        screenshotCapture: any ScreenshotCapturing = ScreenshotCapture()
+    ) throws -> SessionStore {
         let url: URL
         if let registryURL {
             url = registryURL
         } else {
             url = try temporaryDirectory().appendingPathComponent("sessions.json")
         }
-        return SessionStore(persistence: SessionPersistence(registryURL: url))
+        return SessionStore(screenshotCapture: screenshotCapture, persistence: SessionPersistence(registryURL: url))
     }
 
     private func makeStore(registryURL: URL) -> SessionStore {
@@ -206,5 +232,13 @@ final class SessionStoreTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+private struct FakeScreenshotCapturer: ScreenshotCapturing {
+    let data: Data
+
+    func captureDisplayContainingMouse(to url: URL) throws {
+        try data.write(to: url, options: .atomic)
     }
 }

@@ -25,13 +25,13 @@ final class SessionStore: ObservableObject {
     }
 
     private let writer: SpiralHTMLWriter
-    private let screenshotCapture: ScreenshotCapture
+    private let screenshotCapture: any ScreenshotCapturing
     private let persistence: SessionPersistence
     private let fileManager: FileManager
 
     init(
         writer: SpiralHTMLWriter = SpiralHTMLWriter(),
-        screenshotCapture: ScreenshotCapture = ScreenshotCapture(),
+        screenshotCapture: any ScreenshotCapturing = ScreenshotCapture(),
         persistence: SessionPersistence? = nil,
         fileManager: FileManager = .default
     ) {
@@ -81,6 +81,13 @@ final class SessionStore: ObservableObject {
         activeSession = session
         try persist()
         return session
+    }
+
+    func latestSession(projectSelectionURL: URL) throws -> ReviewSession? {
+        let projectRoot = ProjectDiscovery.locateProjectRoot(from: projectSelectionURL, fileManager: fileManager)
+        let docsProfile = ProjectDiscovery.detectDocs(for: projectRoot, fileManager: fileManager)
+        try mergeProjectSessions(for: docsProfile)
+        return latestSession(for: projectRoot)
     }
 
     func resumeSession(_ session: ReviewSession) throws {

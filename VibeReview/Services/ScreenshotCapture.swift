@@ -1,6 +1,10 @@
 import AppKit
 import Foundation
 
+protocol ScreenshotCapturing {
+    func captureDisplayContainingMouse(to url: URL) throws
+}
+
 enum ScreenshotCaptureError: Error, LocalizedError {
     case noDisplayImage
     case pngEncodingFailed
@@ -20,7 +24,7 @@ struct CaptureDisplayCandidate {
     var frame: CGRect
 }
 
-struct ScreenshotCapture {
+struct ScreenshotCapture: ScreenshotCapturing {
     func captureDisplayContainingMouse(to url: URL) throws {
         let displayID = Self.displayIDContainingMouse()
         guard let image = CGDisplayCreateImage(displayID) else {
@@ -33,18 +37,26 @@ struct ScreenshotCapture {
         try data.write(to: url, options: .atomic)
     }
 
+    static func displayIDContainingMouse() -> CGDirectDisplayID {
+        let mouseLocation = currentMouseLocation()
+        return displayIDContainingMouse(
+            mouseLocation: mouseLocation,
+            displayContainingPoint: displayID(containing:),
+            candidates: activeDisplayCandidates(),
+            fallback: CGMainDisplayID()
+        )
+    }
+
     static func displayIDContainingMouse(
-        mouseLocation: CGPoint = NSEvent.mouseLocation,
-        screens: [NSScreen] = NSScreen.screens,
-        mainDisplayID: CGDirectDisplayID = CGMainDisplayID()
+        mouseLocation: CGPoint,
+        displayContainingPoint: (CGPoint) -> CGDirectDisplayID?,
+        candidates: [CaptureDisplayCandidate],
+        fallback: CGDirectDisplayID
     ) -> CGDirectDisplayID {
-        let candidates = screens.compactMap { screen -> CaptureDisplayCandidate? in
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                return nil
-            }
-            return CaptureDisplayCandidate(id: CGDirectDisplayID(number.uint32Value), frame: screen.frame)
+        if let displayID = displayContainingPoint(mouseLocation) {
+            return displayID
         }
-        return selectedDisplayID(mouseLocation: mouseLocation, candidates: candidates, fallback: mainDisplayID)
+        return selectedDisplayID(mouseLocation: mouseLocation, candidates: candidates, fallback: fallback)
     }
 
     static func selectedDisplayID(
@@ -62,6 +74,36 @@ struct ScreenshotCapture {
             return fallback
         }
         return nearestDisplay.id
+    }
+
+    private static func currentMouseLocation() -> CGPoint {
+        CGEvent(source: nil)?.location ?? NSEvent.mouseLocation
+    }
+
+    private static func displayID(containing point: CGPoint) -> CGDirectDisplayID? {
+        var matchingDisplayCount: UInt32 = 0
+        var displays = [CGDirectDisplayID](repeating: 0, count: 1)
+        let error = CGGetDisplaysWithPoint(point, UInt32(displays.count), &displays, &matchingDisplayCount)
+        guard error == .success, matchingDisplayCount > 0 else {
+            return nil
+        }
+        return displays[0]
+    }
+
+    private static func activeDisplayCandidates() -> [CaptureDisplayCandidate] {
+        var displayCount: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
+            return []
+        }
+
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        guard CGGetActiveDisplayList(displayCount, &displays, &displayCount) == .success else {
+            return []
+        }
+
+        return displays.prefix(Int(displayCount)).map { displayID in
+            CaptureDisplayCandidate(id: displayID, frame: CGDisplayBounds(displayID))
+        }
     }
 
     private static func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
